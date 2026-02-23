@@ -60,7 +60,7 @@ function OnboardingPage() {
       {/* 로고와 제목 */}
       <div className="relative z-10 flex flex-col items-center pt-[103px] shrink-0">
         <img className="pb-[18px]" src={skating_icon_Default} alt="icon" />
-        <p className="w-[292px] leading-[58px] text-[40px] text-[#414177] font-bold font-ria text-center">
+        <p className="whitespace-nowrap leading-[58px] text-[40px] text-[#414177] font-bold font-ria text-center">
           뻔라인스케이팅
         </p>
       </div>

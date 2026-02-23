@@ -237,6 +237,7 @@ function ProfilePage() {
                     setInstagramId(value);
                   }}
                   placeholder="인스타그램 아이디를 입력해주세요."
+                  maxLength={30}
                 />
               </div>
 

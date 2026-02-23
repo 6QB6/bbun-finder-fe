@@ -140,9 +140,9 @@ export default function BusinessCard({
                   <p className="leading-[14px] text-[13px]">{email}</p>
                 </div>
               </div>
-              <div className="w-full h-[14px] flex flex-row justify-between">
-                <p className="leading-[14px] text-[13px]">{instagramId ?? ""}</p>
-                <p className="leading-[14px] text-[13px]">{department ?? ""}</p>
+              <div className="w-full flex flex-row justify-between items-start gap-2">
+                <p className="leading-[14px] text-[13px] break-all">{instagramId ?? ""}</p>
+                <p className="leading-[14px] text-[13px] whitespace-nowrap shrink-0">{department ?? ""}</p>
               </div>
             </div>
           )}
