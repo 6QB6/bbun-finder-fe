@@ -4,6 +4,7 @@ interface InputProps {
   label?: string;
   placeholder?: string;
   disabled?: boolean;
+  maxLength?: number;
 }
 
 function Input({
@@ -12,6 +13,7 @@ function Input({
   label,
   placeholder = "Enter text",
   disabled = false,
+  maxLength,
 }: InputProps) {
   return (
     <div className="flex flex-col gap-1">
@@ -22,6 +24,7 @@ function Input({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
+        maxLength={maxLength}
         className={`w-full px-4 py-2
           border 
           text-[14px]

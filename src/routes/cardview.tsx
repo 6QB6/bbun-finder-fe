@@ -152,7 +152,7 @@ function RouteComponent() {
           <div className="flex flex-col items-center">
             <img src={imageSrc} alt="profile" className="w-[78px] h-[78px]"/>
             <div className="text-[25px] text-[#414177] mt-[12px] font-extrabold">{name}</div>
-            <div className="text-[14px] font-extrabold mt-[14px]">{studentId} • {major}</div>
+            <div className="whitespace-nowrap text-[14px] font-extrabold mt-[14px]">{studentId} • {major}</div>
           </div>
 
           <button 
@@ -183,7 +183,7 @@ function RouteComponent() {
             </div>
           </div>
         </div>
-        <div className="mt-auto pb-[calc(56px+env(safe-area-inset-bottom))] z-10">
+        <div className="mt-[230px] pb-[calc(56px+env(safe-area-inset-bottom))] z-10">
           <Button
             label={isMine ? "수정하기" : "뒤로가기"}
             onClick={() => {
