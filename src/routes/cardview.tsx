@@ -15,6 +15,7 @@ import default_profile_2 from "../assets/icons/default_profile_2.png";
 import default_profile_3 from "../assets/icons/default_profile_3.png";
 import default_profile_4 from "../assets/icons/default_profile_4.png";
 import default_profile_5 from "../assets/icons/default_profile_5.png";
+import go_back from "../assets/icons/go_back.svg";
 import { reverseDepartmentMap } from "../types/department";
 import LocalStorageKeys from "../types/localstorage";
 
@@ -183,17 +184,32 @@ function RouteComponent() {
             </div>
           </div>
         </div>
-        <div className="mt-[230px] pb-[calc(56px+env(safe-area-inset-bottom))] z-10">
-          <Button
-            label={isMine ? "수정하기" : "뒤로가기"}
-            onClick={() => {
-              if (isMine) {
-                router.navigate({ to: "/profile" });
-              } else {
-                router.navigate({ to: "/" });
-              }
-            }}
-          />
+        <div className="mt-[230px] pb-[calc(56px+env(safe-area-inset-bottom))] z-10 flex flex-row items-center justify-center gap-[17px] w-full self-center">
+          {isMine ? (
+            <>
+              <button
+                type="button"
+                onClick={() => router.navigate({ to: "/" })}
+                className="flex items-center justify-center w-[52px] h-[52px] cursor-pointer active:scale-95 transition-all"
+              >
+                <img
+                  src={go_back}
+                  alt="go back"
+                  className="w-[50px] h-[50px]"
+                />
+              </button>
+              <Button
+                label="수정하기"
+                onClick={() => router.navigate({ to: "/profile" })}
+                className="w-[240px]"
+              />
+            </>
+          ) : (
+            <Button
+              label="뒤로가기"
+              onClick={() => router.navigate({ to: "/" })}
+            />
+          )}
         </div>
       </div>
     </div>
