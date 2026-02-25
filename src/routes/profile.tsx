@@ -133,7 +133,7 @@ function ProfilePage() {
   };
 
   const handleWithdrawClick = async () => {
-    if (!confirm("정말로 탈퇴하시겠습니까? 이 행위는 되돌릴 수 없습니다. 탈퇴 후 일정 기간동안 서비스를 이용하실 수 없습니다. ")) {
+    if (!confirm("정말로 탈퇴하시겠습니까? 이 행위는 되돌릴 수 없습니다.")) {
       return;
     }
 

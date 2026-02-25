@@ -19,6 +19,10 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error.response && error.response.status === 401) {
+      if (window.location.pathname === "/auth") {
+        return Promise.reject(error);
+      }
+
       localStorage.removeItem(LocalStorageKeys.AccessToken);
       localStorage.removeItem(LocalStorageKeys.IdToken);
       localStorage.removeItem(LocalStorageKeys.BbunAccessToken);

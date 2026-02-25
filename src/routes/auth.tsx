@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, redirect } from "@tanstack/react-router";
 import { oAuthGetToken, bbunLogin } from "../apis/auth";
 import { registerBbunUser, getBbunUser } from "../apis/user";
@@ -134,8 +134,12 @@ function RouteComponent() {
 const useOAuthSequence = () => {
   const [authStatus, setAuthStatus] = useState<AuthStatus>("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const hasRun = useRef(false);
 
   useEffect(() => {
+    if (hasRun.current) return;
+    hasRun.current = true;
+
     const performOAuthSequence = async () => {
       try {
         const result = await oauthSequence();
