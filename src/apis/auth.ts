@@ -99,6 +99,7 @@ export const oAuthGetToken = async (state: string, currentURL: URL) => {
         redirect_uri: REDIRECT_URI,
       }
     );
+    console.log("OAuth token success:", token);
     return token;
   } catch (err) {
     console.error("OAuth token error:", err);
