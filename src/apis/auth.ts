@@ -60,15 +60,29 @@ export const oAuthGetToken = async (state: string, currentURL: URL) => {
   const code_verifier = localStorage.getItem(LocalStorageKeys.CodeVerifier);
   const code_nonce = localStorage.getItem(LocalStorageKeys.OAuthNonce);
 
+  console.log("oAuthGetToken debug:", {
+    receivedState: state,
+    localState: local_state,
+    hasVerifier: !!code_verifier,
+    hasNonce: !!code_nonce,
+  });
+
   if (!code_verifier) {
+    console.error("Login Error: Missing code verifier in localStorage");
     throw new Error("Missing code verifier");
   }
   if (!code_nonce) {
+    console.error("Login Error: Missing code nonce in localStorage");
     throw new Error("Missing code nonce");
   }
   if (!local_state) {
+    console.error("Login Error: Missing local state in localStorage");
     throw new Error("Missing local state");
   } else if (local_state !== state) {
+    console.error("Login Error: State mismatch", {
+      local: local_state,
+      received: state,
+    });
     throw new Error("State mismatch");
   }
 
