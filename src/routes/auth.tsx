@@ -21,11 +21,13 @@ type AuthStatus = "loading" | "success" | "failed" | "signup";
 
 export const Route = createFileRoute("/auth")({
   beforeLoad: () => {
+    const url = window.location.href;
     const urlParams = new URLSearchParams(window.location.search);
     const state = urlParams.get("state");
     const code = urlParams.get("code");
 
     if (!state || !code) {
+      alert(`[Debug] No state or code found!\nURL: ${url}\nSearch: ${window.location.search}\nHash: ${window.location.hash}\nRedirecting back to onboarding.`);
       throw redirect({
         to: "/onboarding",
       });

@@ -60,21 +60,15 @@ export const oAuthGetToken = async (state: string, currentURL: URL) => {
   const code_verifier = localStorage.getItem(LocalStorageKeys.CodeVerifier);
   const code_nonce = localStorage.getItem(LocalStorageKeys.OAuthNonce);
 
-  alert(`oAuthGetToken debug:\nreceivedState: ${state}\nlocalState: ${local_state}\nhasVerifier: ${!!code_verifier}\nhasNonce: ${!!code_nonce}`);
-
   if (!code_verifier) {
-    alert("Login Error: Missing code verifier in localStorage");
     throw new Error("Missing code verifier");
   }
   if (!code_nonce) {
-    alert("Login Error: Missing code nonce in localStorage");
     throw new Error("Missing code nonce");
   }
   if (!local_state) {
-    alert("Login Error: Missing local state in localStorage");
     throw new Error("Missing local state");
   } else if (local_state !== state) {
-    alert(`Login Error: State mismatch\nlocal: ${local_state}\nreceived: ${state}`);
     throw new Error("State mismatch");
   }
 
@@ -91,10 +85,8 @@ export const oAuthGetToken = async (state: string, currentURL: URL) => {
         redirect_uri: REDIRECT_URI,
       }
     );
-    alert(`OAuth token success: ${JSON.stringify(token)}`);
     return token;
   } catch (err: any) {
-    alert(`OAuth token error: ${err.message || err}`);
     throw err;
   }
 };
