@@ -1,13 +1,7 @@
 import api from "./interceptor";
+import type { ProfileData } from "../types/interfaces";
 import LocalStorageKeys from "../types/localstorage";
 
-interface ProfileData {
-    department?: string | null;
-    MBTI?: string | null;
-    instaId?: string | null;
-    description?: string | null;
-    consent?: boolean;
-}
 
 export const registerBbunUser = async () => {
     const idToken = localStorage.getItem(LocalStorageKeys.IdToken);
