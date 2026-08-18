@@ -1,47 +1,77 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useState, useRef, useEffect, Fragment, useMemo } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { getChatInfo, getChatMessages } from "../apis/chat";
+import { getBbunUser } from "../apis/user";
 import MessageBubble from "../components/MessageBubble";
 import go_back_black from "../assets/icons/go_back_black.svg";
 import SystemMessage from "../components/SystemMessage";
 import send from "../assets/icons/send.svg";
 import send_disabled from "../assets/icons/send_disabled.svg";
+import { useChatSocket } from "../hooks/useChatSocket";
+import type {
+  ChatMessageDto,
+  ChatRoomInfoDto,
+  ChatRoomUserDto,
+  UserInfo,
+} from "../types/interfaces";
 
-interface ChatMessage {
-  id: number;
-  type: "system" | "user";
+interface ChatMessage extends ChatMessageDto {
+  id: string;
+  type: "user";
   sender?: string;
-  studentId?: string;
-  message: string;
-  createdAt: string;
-  isMe?: boolean;
+  studentId: string;
+  isMe: boolean;
 }
 
-const MOCK_MESSAGES: ChatMessage[] = [
-  {
-    id: 1,
-    type: "system",
-    createdAt: "2026-04-01T08:11:59",
-    message: "000, 001, 002... 님이 입장하셨습니다.",
-  },
-  {
-    id: 2,
+interface RenderedChatMessage extends ChatMessage {
+  isNewDate: boolean;
+  isFirstInGroup: boolean;
+  isLastInGroup: boolean;
+}
+
+const MAX_CHAT_MESSAGE_LENGTH = 255;
+const INITIAL_CHAT_MESSAGE_TAKE = 30;
+const CHAT_MESSAGE_PAGE_SIZE = 30;
+
+const toChatMessage = (
+  message: ChatMessageDto,
+  usersByUuid: Map<string, ChatRoomUserDto>,
+  currentUserUuid: string | null,
+): ChatMessage => {
+  const sender = usersByUuid.get(message.senderUuid);
+
+  return {
+    ...message,
+    id: message.messageUuid,
     type: "user",
-    sender: "지니",
-    studentId: "20250001",
-    createdAt: "2026-04-01T08:12:00",
-    message: "새해 복 많이 받으세요!! 좋은 하루 되세요.",
-    isMe: false,
-  },
-  {
-    id: 3,
-    type: "user",
-    sender: "지니2",
-    studentId: "20240001",
-    createdAt: "2026-04-01T08:12:01",
-    message: "넹 좋아요",
-    isMe: false,
-  },
-];
+    sender: sender?.name,
+    studentId: message.senderUuid,
+    isMe: currentUserUuid === message.senderUuid,
+  };
+};
+
+const mergeMessagesByUuid = (
+  prevMessages: ChatMessage[],
+  nextMessages: ChatMessage[],
+) => {
+  const messagesByUuid = new Map<string, ChatMessage>();
+
+  [...prevMessages, ...nextMessages].forEach((message) => {
+    messagesByUuid.set(message.messageUuid, message);
+  });
+
+  return Array.from(messagesByUuid.values()).sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+};
 
 export const Route = createFileRoute("/chat")({
   component: RouteComponent,
@@ -50,22 +80,206 @@ export const Route = createFileRoute("/chat")({
 function RouteComponent() {
   const router = useRouter();
 
-  const [messages, setMessages] = useState<ChatMessage[]>(MOCK_MESSAGES);
+  const [chatInfo, setChatInfo] = useState<ChatRoomInfoDto | null>(null);
+  const [usersByUuid, setUsersByUuid] = useState<Map<string, ChatRoomUserDto>>(
+    () => new Map(),
+  );
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [currentUserUuid, setCurrentUserUuid] = useState<string | null>(null);
+  const [isInitialLoaded, setIsInitialLoaded] = useState(false);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [inputText, setInputText] = useState("");
+  const messageListRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messageTakeRef = useRef(INITIAL_CHAT_MESSAGE_TAKE);
+  const hasScrolledToLatestRef = useRef(false);
+  const isNearBottomRef = useRef(true);
+  const scrollRestoreRef = useRef<{
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
+
+  const upsertMessage = useCallback(
+    (nextMessageDto: ChatMessageDto) => {
+      const nextMessage = toChatMessage(
+        nextMessageDto,
+        usersByUuid,
+        currentUserUuid,
+      );
+
+      setMessages((prevMessages) => {
+        const targetIndex = prevMessages.findIndex(
+          (message) => message.messageUuid === nextMessage.messageUuid,
+        );
+
+        if (targetIndex === -1) {
+          return [...prevMessages, nextMessage];
+        }
+
+        return prevMessages.map((message, index) =>
+          index === targetIndex ? nextMessage : message,
+        );
+      });
+    },
+    [currentUserUuid, usersByUuid],
+  );
+
+  const {
+    status: socketStatus,
+    error: socketError,
+    sendChat,
+  } = useChatSocket({
+    enabled: isInitialLoaded,
+    onChatMessage: upsertMessage,
+  });
+
+  useEffect(() => {
+    let ignore = false;
+
+    const loadChat = async () => {
+      try {
+        setErrorMessage(null);
+
+        const info = await getChatInfo();
+        if (ignore) return;
+
+        const nextUsersByUuid = new Map(
+          info.users.map((user) => [user.userUuid, user]),
+        );
+        setChatInfo(info);
+        setUsersByUuid(nextUsersByUuid);
+
+        const [initialMessages, userInfo] = await Promise.all([
+          getChatMessages({ take: INITIAL_CHAT_MESSAGE_TAKE }),
+          getBbunUser().catch(() => null),
+        ]);
+        if (ignore) return;
+
+        const currentBbunUser: UserInfo | null = userInfo;
+        const nextCurrentUserUuid = currentBbunUser?.uuid ?? null;
+
+        setMessages(
+          initialMessages.map((message) =>
+            toChatMessage(message, nextUsersByUuid, nextCurrentUserUuid),
+          ),
+        );
+        messageTakeRef.current = INITIAL_CHAT_MESSAGE_TAKE;
+        setHasMoreMessages(
+          initialMessages.length >= INITIAL_CHAT_MESSAGE_TAKE,
+        );
+        setCurrentUserUuid(nextCurrentUserUuid);
+        setIsInitialLoaded(true);
+      } catch (error) {
+        if (ignore) return;
+
+        console.error("Error loading chat:", error);
+        setErrorMessage("채팅 정보를 불러오지 못했습니다.");
+      }
+    };
+
+    loadChat();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInputText(e.target.value);
+    setInputText(e.target.value.slice(0, MAX_CHAT_MESSAGE_LENGTH));
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const messageList = messageListRef.current;
+    if (!messageList || !isInitialLoaded || messages.length === 0) return;
+
+    const scrollRestore = scrollRestoreRef.current;
+    if (scrollRestore) {
+      messageList.scrollTop =
+        messageList.scrollHeight -
+        scrollRestore.scrollHeight +
+        scrollRestore.scrollTop;
+      scrollRestoreRef.current = null;
+      return;
+    }
+
+    if (!hasScrolledToLatestRef.current) {
+      messageList.scrollTop = messageList.scrollHeight;
+      hasScrolledToLatestRef.current = true;
+      isNearBottomRef.current = true;
+      return;
+    }
+
+    if (!isNearBottomRef.current) return;
+
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const handleMessageListScroll = useCallback(async () => {
+    const messageList = messageListRef.current;
+    if (!messageList) return;
+
+    isNearBottomRef.current =
+      messageList.scrollHeight -
+        messageList.scrollTop -
+        messageList.clientHeight <=
+      80;
+
+    if (
+      messageList.scrollTop > 24 ||
+      !isInitialLoaded ||
+      isLoadingOlderMessages ||
+      !hasMoreMessages
+    ) {
+      return;
+    }
+
+    setIsLoadingOlderMessages(true);
+    scrollRestoreRef.current = {
+      scrollHeight: messageList.scrollHeight,
+      scrollTop: messageList.scrollTop,
+    };
+
+    try {
+      const nextTake = messageTakeRef.current + CHAT_MESSAGE_PAGE_SIZE;
+      const olderMessages = await getChatMessages({ take: nextTake });
+
+      messageTakeRef.current = nextTake;
+      setHasMoreMessages(olderMessages.length >= nextTake);
+      setMessages((prevMessages) => {
+        const nextMessages = olderMessages.map((message) =>
+          toChatMessage(message, usersByUuid, currentUserUuid),
+        );
+        const mergedMessages = mergeMessagesByUuid(prevMessages, nextMessages);
+
+        if (mergedMessages.length <= prevMessages.length) {
+          setHasMoreMessages(false);
+          scrollRestoreRef.current = null;
+          return prevMessages;
+        }
+
+        return mergedMessages;
+      });
+    } catch (error) {
+      console.error("Error loading older chat messages:", error);
+      scrollRestoreRef.current = null;
+    } finally {
+      setIsLoadingOlderMessages(false);
+    }
+  }, [
+    currentUserUuid,
+    hasMoreMessages,
+    isInitialLoaded,
+    isLoadingOlderMessages,
+    messages.length,
+    usersByUuid,
+  ]);
 
   const formatTime = (isoString: string) => {
     return new Intl.DateTimeFormat("ko-KR", {
@@ -83,19 +297,10 @@ function RouteComponent() {
   };
 
   const handleSendMessage = () => {
-    if (inputText.trim() === "") return;
+    const message = inputText.trim().slice(0, MAX_CHAT_MESSAGE_LENGTH);
+    if (!message || socketStatus !== "authorized") return;
 
-    const newMessage: ChatMessage = {
-      id: Date.now(),
-      type: "user",
-      sender: "어스",
-      studentId: "20260001",
-      createdAt: new Date().toISOString(),
-      message: inputText,
-      isMe: true,
-    };
-
-    setMessages((prev) => [...prev, newMessage]);
+    sendChat(message);
     setInputText("");
 
     if (textareaRef.current) {
@@ -110,7 +315,7 @@ function RouteComponent() {
     }
   };
 
-  const renderedMessages = useMemo(() => {
+  const renderedMessages = useMemo<RenderedChatMessage[]>(() => {
     return messages.map((msg, index) => {
       const prevMsg = messages[index - 1];
       const nextMsg = messages[index + 1];
@@ -137,36 +342,34 @@ function RouteComponent() {
         formatTime(nextMsg.createdAt) === formatTime(msg.createdAt);
 
       const isSamePersonWithPrev =
-        prevMsg?.type === "user" &&
-        msg.type === "user" &&
+        !!prevMsg &&
         prevMsg.studentId === msg.studentId &&
         prevMsg.isMe === msg.isMe;
       const isSamePersonWithNext =
-        nextMsg?.type === "user" &&
-        msg.type === "user" &&
+        !!nextMsg &&
         nextMsg.studentId === msg.studentId &&
         nextMsg.isMe === msg.isMe;
 
       const isFirstInGroup = !isSamePersonWithPrev || !isSameTimeWithPrev;
       const isLastInGroup = !isSamePersonWithNext || !isSameTimeWithNext;
 
-      const isConsecutiveSystem =
-        msg.type === "system" && prevMsg?.type === "system";
-
       return {
         ...msg,
         isNewDate,
         isFirstInGroup,
         isLastInGroup,
-        isConsecutiveSystem,
       };
     });
   }, [messages]);
 
+  const canSendMessage =
+    !!chatInfo && inputText.trim() !== "" && socketStatus === "authorized";
+  const hasSocketError = socketStatus === "error" || !!socketError;
+  const isChatInputDisabled = socketStatus !== "authorized";
+
   return (
     <div className="w-full h-[100dvh] flex flex-col overflow-hidden">
       <div className="relative h-full w-full bg-blue-200 bg-[linear-gradient(162deg,#D2E4FF,#E9E0FF)] flex flex-col bg-fixed">
-        {/* 상단바 */}
         <div className="relative w-full bg-[#E7EEFF] drop-shadow-md flex flex-col z-10 pt-[calc(10px+env(safe-area-inset-top))]">
           <div className="relative w-full h-[57px] flex flex-row items-center justify-between pl-[30px] pr-[30px]">
             <button
@@ -182,8 +385,33 @@ function RouteComponent() {
           </div>
         </div>
 
-        {/* 채팅창 */}
-        <div className="flex-1 overflow-y-auto scrollbar-hide flex flex-col gap-[16px] px-[12px] py-[20px]">
+        <div
+          ref={messageListRef}
+          onScroll={handleMessageListScroll}
+          className="flex-1 overflow-y-auto scrollbar-hide flex flex-col gap-[16px] px-[12px] py-[20px]"
+        >
+          {errorMessage && (
+            <SystemMessage message={errorMessage} isStacked={false} />
+          )}
+
+          {isLoadingOlderMessages && (
+            <SystemMessage message="이전 메시지를 불러오는 중입니다." isStacked={false} />
+          )}
+
+          {!errorMessage && !isInitialLoaded && (
+            <SystemMessage
+              message="채팅을 불러오는 중입니다."
+              isStacked={false}
+            />
+          )}
+
+          {!errorMessage && isInitialLoaded && hasSocketError && (
+            <SystemMessage
+              message="채팅 연결에 실패했습니다. 다시 접속해 주세요."
+              isStacked={false}
+            />
+          )}
+
           {renderedMessages.map((msg) => (
             <Fragment key={msg.id}>
               {msg.isNewDate && (
@@ -193,28 +421,20 @@ function RouteComponent() {
                 />
               )}
 
-              {msg.type === "system" ? (
-                <SystemMessage
-                  message={msg.message}
-                  isStacked={msg.isConsecutiveSystem}
-                />
-              ) : (
-                <MessageBubble
-                  name={msg.sender ?? ""}
-                  studentId={msg.studentId ?? ""}
-                  messageSendTime={formatTime(msg.createdAt)}
-                  message={msg.message}
-                  isMe={msg.isMe ?? false}
-                  showProfile={msg.isFirstInGroup}
-                  showTime={msg.isLastInGroup}
-                />
-              )}
+              <MessageBubble
+                name={msg.sender ?? "알 수 없음"}
+                studentId={msg.studentId}
+                messageSendTime={formatTime(msg.createdAt)}
+                message={msg.message}
+                isMe={msg.isMe}
+                showProfile={msg.isFirstInGroup}
+                showTime={msg.isLastInGroup}
+              />
             </Fragment>
           ))}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* 입력창 */}
         <div className="relative w-full bg-[#FFFFFF] mt-auto pt-[10px] pb-[calc(10px+env(safe-area-inset-bottom))] px-[20px] flex flex-row items-center justify-center border-t border-[#EFEFEF]">
           <div className="w-full h-full flex flex-row items-center justify-between gap-[18px]">
             <div className="flex-1 bg-[#F8F8F8] rounded-[12px] px-[12px] py-[10px] flex flex-col items-center">
@@ -223,20 +443,32 @@ function RouteComponent() {
                 value={inputText}
                 onChange={handleInput}
                 onKeyDown={handleKeyDown}
-                placeholder="메시지를 입력하세요"
+                disabled={isChatInputDisabled}
+                maxLength={MAX_CHAT_MESSAGE_LENGTH}
+                placeholder={
+                  hasSocketError
+                    ? "채팅 연결에 실패했습니다"
+                    : socketStatus === "authorized"
+                      ? "메시지를 입력하세요"
+                      : "채팅방에 연결 중입니다"
+                }
                 rows={1}
-                className="w-full bg-transparent outline-none text-[15px] text-[#161616] placeholder:text-[#161616] resize-none max-h-[96px] overflow-y-auto scrollbar-hide leading-[24px]"
+                className={`w-full bg-transparent outline-none text-[15px] resize-none max-h-[96px] overflow-y-auto scrollbar-hide leading-[24px] ${
+                  isChatInputDisabled
+                    ? "text-[#989898] placeholder:text-[#989898] cursor-not-allowed"
+                    : "text-[#161616] placeholder:text-[#161616]"
+                }`}
               />
             </div>
             <button
               type="button"
-              disabled={!inputText.trim()}
+              disabled={!canSendMessage}
               onClick={handleSendMessage}
               aria-label="메시지 전송"
-              className={`w-[22px] h-[22px] ${inputText.trim() ? "cursor-pointer" : "cursor-default"} focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#414177]`}
+              className={`w-[22px] h-[22px] ${canSendMessage ? "cursor-pointer" : "cursor-default"} focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#414177]`}
             >
               <img
-                src={inputText.trim() ? send : send_disabled}
+                src={canSendMessage ? send : send_disabled}
                 alt=""
                 aria-hidden="true"
               />
