@@ -58,6 +58,21 @@ const toChatMessage = (
   };
 };
 
+const mergeMessagesByUuid = (
+  prevMessages: ChatMessage[],
+  nextMessages: ChatMessage[],
+) => {
+  const messagesByUuid = new Map<string, ChatMessage>();
+
+  [...prevMessages, ...nextMessages].forEach((message) => {
+    messagesByUuid.set(message.messageUuid, message);
+  });
+
+  return Array.from(messagesByUuid.values()).sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+};
+
 export const Route = createFileRoute("/chat")({
   component: RouteComponent,
 });
@@ -81,6 +96,7 @@ function RouteComponent() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messageTakeRef = useRef(INITIAL_CHAT_MESSAGE_TAKE);
   const hasScrolledToLatestRef = useRef(false);
+  const isNearBottomRef = useRef(true);
   const scrollRestoreRef = useRef<{
     scrollHeight: number;
     scrollTop: number;
@@ -196,16 +212,26 @@ function RouteComponent() {
     if (!hasScrolledToLatestRef.current) {
       messageList.scrollTop = messageList.scrollHeight;
       hasScrolledToLatestRef.current = true;
+      isNearBottomRef.current = true;
       return;
     }
+
+    if (!isNearBottomRef.current) return;
 
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const handleMessageListScroll = useCallback(async () => {
     const messageList = messageListRef.current;
+    if (!messageList) return;
+
+    isNearBottomRef.current =
+      messageList.scrollHeight -
+        messageList.scrollTop -
+        messageList.clientHeight <=
+      80;
+
     if (
-      !messageList ||
       messageList.scrollTop > 24 ||
       !isInitialLoaded ||
       isLoadingOlderMessages ||
@@ -224,19 +250,22 @@ function RouteComponent() {
       const nextTake = messageTakeRef.current + CHAT_MESSAGE_PAGE_SIZE;
       const olderMessages = await getChatMessages({ take: nextTake });
 
-      if (olderMessages.length <= messages.length) {
-        setHasMoreMessages(false);
-        scrollRestoreRef.current = null;
-        return;
-      }
-
       messageTakeRef.current = nextTake;
       setHasMoreMessages(olderMessages.length >= nextTake);
-      setMessages(
-        olderMessages.map((message) =>
+      setMessages((prevMessages) => {
+        const nextMessages = olderMessages.map((message) =>
           toChatMessage(message, usersByUuid, currentUserUuid),
-        ),
-      );
+        );
+        const mergedMessages = mergeMessagesByUuid(prevMessages, nextMessages);
+
+        if (mergedMessages.length <= prevMessages.length) {
+          setHasMoreMessages(false);
+          scrollRestoreRef.current = null;
+          return prevMessages;
+        }
+
+        return mergedMessages;
+      });
     } catch (error) {
       console.error("Error loading older chat messages:", error);
       scrollRestoreRef.current = null;
