@@ -6,7 +6,13 @@ export const getWebSocketUrl = (
 ) => {
   const fallbackOrigin =
     typeof window !== "undefined" ? window.location.origin : "http://localhost:5173";
-  const wsUrl = new URL(path, baseUrl || fallbackOrigin);
+  const wsUrl = new URL(baseUrl || fallbackOrigin);
+  const pathUrl = new URL(path, fallbackOrigin);
+  const basePath = wsUrl.pathname === "/" ? "" : wsUrl.pathname.replace(/\/$/, "");
+
+  wsUrl.pathname = `${basePath}${pathUrl.pathname}`;
+  wsUrl.search = pathUrl.search;
+  wsUrl.hash = pathUrl.hash;
 
   wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
 

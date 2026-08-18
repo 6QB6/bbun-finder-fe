@@ -1,5 +1,5 @@
 import api from "./interceptor";
-import type { ProfileData } from "../types/interfaces";
+import type { ProfileData, UserInfo } from "../types/interfaces";
 import LocalStorageKeys from "../types/localstorage";
 
 
@@ -17,8 +17,8 @@ export const registerBbunUser = async () => {
         .then(({ data }) => data);
 };
 
-export const getBbunUser = async () => {
-  return api.get(`/user`).then(({ data }) => data);
+export const getBbunUser = async (): Promise<UserInfo> => {
+  return api.get<UserInfo>(`/user`).then(({ data }) => data);
 };
 
 export const updateBbunUser = async (profileData: ProfileData) => {

@@ -3,6 +3,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,6 +20,7 @@ import type {
   ChatMessageDto,
   ChatRoomInfoDto,
   ChatRoomUserDto,
+  UserInfo,
 } from "../types/interfaces";
 
 interface ChatMessage extends ChatMessageDto {
@@ -35,12 +37,9 @@ interface RenderedChatMessage extends ChatMessage {
   isLastInGroup: boolean;
 }
 
-interface CurrentBbunUser {
-  uuid?: string;
-  userUuid?: string;
-}
-
 const MAX_CHAT_MESSAGE_LENGTH = 255;
+const INITIAL_CHAT_MESSAGE_TAKE = 30;
+const CHAT_MESSAGE_PAGE_SIZE = 30;
 
 const toChatMessage = (
   message: ChatMessageDto,
@@ -73,10 +72,19 @@ function RouteComponent() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentUserUuid, setCurrentUserUuid] = useState<string | null>(null);
   const [isInitialLoaded, setIsInitialLoaded] = useState(false);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [inputText, setInputText] = useState("");
+  const messageListRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messageTakeRef = useRef(INITIAL_CHAT_MESSAGE_TAKE);
+  const hasScrolledToLatestRef = useRef(false);
+  const scrollRestoreRef = useRef<{
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
 
   const upsertMessage = useCallback(
     (nextMessageDto: ChatMessageDto) => {
@@ -103,7 +111,11 @@ function RouteComponent() {
     [currentUserUuid, usersByUuid],
   );
 
-  const { status: socketStatus, sendChat } = useChatSocket({
+  const {
+    status: socketStatus,
+    error: socketError,
+    sendChat,
+  } = useChatSocket({
     enabled: isInitialLoaded,
     onChatMessage: upsertMessage,
   });
@@ -125,19 +137,22 @@ function RouteComponent() {
         setUsersByUuid(nextUsersByUuid);
 
         const [initialMessages, userInfo] = await Promise.all([
-          getChatMessages({ take: 30 }),
+          getChatMessages({ take: INITIAL_CHAT_MESSAGE_TAKE }),
           getBbunUser().catch(() => null),
         ]);
         if (ignore) return;
 
-        const currentBbunUser = userInfo as CurrentBbunUser | null;
-        const nextCurrentUserUuid =
-          currentBbunUser?.uuid ?? currentBbunUser?.userUuid ?? null;
+        const currentBbunUser: UserInfo | null = userInfo;
+        const nextCurrentUserUuid = currentBbunUser?.uuid ?? null;
 
         setMessages(
           initialMessages.map((message) =>
             toChatMessage(message, nextUsersByUuid, nextCurrentUserUuid),
           ),
+        );
+        messageTakeRef.current = INITIAL_CHAT_MESSAGE_TAKE;
+        setHasMoreMessages(
+          initialMessages.length >= INITIAL_CHAT_MESSAGE_TAKE,
         );
         setCurrentUserUuid(nextCurrentUserUuid);
         setIsInitialLoaded(true);
@@ -164,9 +179,78 @@ function RouteComponent() {
     }
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const messageList = messageListRef.current;
+    if (!messageList || !isInitialLoaded || messages.length === 0) return;
+
+    const scrollRestore = scrollRestoreRef.current;
+    if (scrollRestore) {
+      messageList.scrollTop =
+        messageList.scrollHeight -
+        scrollRestore.scrollHeight +
+        scrollRestore.scrollTop;
+      scrollRestoreRef.current = null;
+      return;
+    }
+
+    if (!hasScrolledToLatestRef.current) {
+      messageList.scrollTop = messageList.scrollHeight;
+      hasScrolledToLatestRef.current = true;
+      return;
+    }
+
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const handleMessageListScroll = useCallback(async () => {
+    const messageList = messageListRef.current;
+    if (
+      !messageList ||
+      messageList.scrollTop > 24 ||
+      !isInitialLoaded ||
+      isLoadingOlderMessages ||
+      !hasMoreMessages
+    ) {
+      return;
+    }
+
+    setIsLoadingOlderMessages(true);
+    scrollRestoreRef.current = {
+      scrollHeight: messageList.scrollHeight,
+      scrollTop: messageList.scrollTop,
+    };
+
+    try {
+      const nextTake = messageTakeRef.current + CHAT_MESSAGE_PAGE_SIZE;
+      const olderMessages = await getChatMessages({ take: nextTake });
+
+      if (olderMessages.length <= messages.length) {
+        setHasMoreMessages(false);
+        scrollRestoreRef.current = null;
+        return;
+      }
+
+      messageTakeRef.current = nextTake;
+      setHasMoreMessages(olderMessages.length >= nextTake);
+      setMessages(
+        olderMessages.map((message) =>
+          toChatMessage(message, usersByUuid, currentUserUuid),
+        ),
+      );
+    } catch (error) {
+      console.error("Error loading older chat messages:", error);
+      scrollRestoreRef.current = null;
+    } finally {
+      setIsLoadingOlderMessages(false);
+    }
+  }, [
+    currentUserUuid,
+    hasMoreMessages,
+    isInitialLoaded,
+    isLoadingOlderMessages,
+    messages.length,
+    usersByUuid,
+  ]);
 
   const formatTime = (isoString: string) => {
     return new Intl.DateTimeFormat("ko-KR", {
@@ -251,6 +335,8 @@ function RouteComponent() {
 
   const canSendMessage =
     !!chatInfo && inputText.trim() !== "" && socketStatus === "authorized";
+  const hasSocketError = socketStatus === "error" || !!socketError;
+  const isChatInputDisabled = socketStatus !== "authorized";
 
   return (
     <div className="w-full h-[100dvh] flex flex-col overflow-hidden">
@@ -265,20 +351,36 @@ function RouteComponent() {
             >
               <img src={go_back_black} alt="" aria-hidden="true" />
             </button>
-            <div className="leading-[25px] text-[18px] font-bold">
-              뻔톡방
-            </div>
+            <div className="leading-[25px] text-[18px] font-bold">뻔톡방</div>
             <div className="w-[10px] h-[18px]" />
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto scrollbar-hide flex flex-col gap-[16px] px-[12px] py-[20px]">
+        <div
+          ref={messageListRef}
+          onScroll={handleMessageListScroll}
+          className="flex-1 overflow-y-auto scrollbar-hide flex flex-col gap-[16px] px-[12px] py-[20px]"
+        >
           {errorMessage && (
             <SystemMessage message={errorMessage} isStacked={false} />
           )}
 
+          {isLoadingOlderMessages && (
+            <SystemMessage message="이전 메시지를 불러오는 중입니다." isStacked={false} />
+          )}
+
           {!errorMessage && !isInitialLoaded && (
-            <SystemMessage message="채팅을 불러오는 중입니다." isStacked={false} />
+            <SystemMessage
+              message="채팅을 불러오는 중입니다."
+              isStacked={false}
+            />
+          )}
+
+          {!errorMessage && isInitialLoaded && hasSocketError && (
+            <SystemMessage
+              message="채팅 연결에 실패했습니다. 다시 접속해 주세요."
+              isStacked={false}
+            />
           )}
 
           {renderedMessages.map((msg) => (
@@ -312,14 +414,21 @@ function RouteComponent() {
                 value={inputText}
                 onChange={handleInput}
                 onKeyDown={handleKeyDown}
+                disabled={isChatInputDisabled}
                 maxLength={MAX_CHAT_MESSAGE_LENGTH}
                 placeholder={
-                  socketStatus === "authorized"
-                    ? "메시지를 입력하세요"
-                    : "채팅방에 연결 중입니다"
+                  hasSocketError
+                    ? "채팅 연결에 실패했습니다"
+                    : socketStatus === "authorized"
+                      ? "메시지를 입력하세요"
+                      : "채팅방에 연결 중입니다"
                 }
                 rows={1}
-                className="w-full bg-transparent outline-none text-[15px] text-[#161616] placeholder:text-[#161616] resize-none max-h-[96px] overflow-y-auto scrollbar-hide leading-[24px]"
+                className={`w-full bg-transparent outline-none text-[15px] resize-none max-h-[96px] overflow-y-auto scrollbar-hide leading-[24px] ${
+                  isChatInputDisabled
+                    ? "text-[#989898] placeholder:text-[#989898] cursor-not-allowed"
+                    : "text-[#161616] placeholder:text-[#161616]"
+                }`}
               />
             </div>
             <button

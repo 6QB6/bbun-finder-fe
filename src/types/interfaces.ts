@@ -7,6 +7,15 @@ export interface UserInfo {
   name: string;
   email: string;
   createdAt: dayjs.Dayjs | string;
+  studentNumber: string;
+  profileImageUrl?: string | null;
+  updatedAt?: string;
+  deletedAt?: string | null;
+  consent?: boolean;
+  department: string;
+  MBTI?: string | null;
+  instaId?: string | null;
+  description?: string | null;
 }
 
 export interface ProfileData {

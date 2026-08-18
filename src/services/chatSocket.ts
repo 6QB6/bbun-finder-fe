@@ -229,15 +229,20 @@ export class ChatSocketClient {
     const envelope = parseWsEnvelope(event.data);
 
     if (envelope.type === ChatWsEventType.RequestAuthorization) {
-      this.sendAuthorization(envelope.request_id);
+      try {
+        this.sendAuthorization(envelope.request_id);
+      } catch (error) {
+        this.handleSocketError(error);
+      }
       return;
     }
 
-    if (
-      envelope.type === ChatWsEventType.AuthorizationResponse &&
-      this.isAuthorizationOk(envelope.body)
-    ) {
-      this.setStatus("authorized");
+    if (envelope.type === ChatWsEventType.AuthorizationResponse) {
+      if (this.isAuthorizationOk(envelope.body)) {
+        this.setStatus("authorized");
+      } else {
+        this.handleSocketError(new Error("Chat WebSocket authorization failed"));
+      }
     }
 
     if (this.isChatMessageEnvelope(envelope)) {
@@ -255,6 +260,12 @@ export class ChatSocketClient {
     this.setStatus("error");
     this.onError?.(event);
   };
+
+  private handleSocketError(error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Chat WebSocket error";
+    this.handleError(new ErrorEvent("error", { message }));
+  }
 
   private sendAuthorization(requestId: string) {
     const authorization = this.tokenProvider();
