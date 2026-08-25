@@ -91,6 +91,13 @@ function RouteComponent() {
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [inputText, setInputText] = useState("");
+  const [openMenuMessageUuid, setOpenMenuMessageUuid] = useState<string | null>(
+    null,
+  );
+  const [editingMessageUuid, setEditingMessageUuid] = useState<string | null>(
+    null,
+  );
+  const [editingText, setEditingText] = useState("");
   const messageListRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -101,6 +108,26 @@ function RouteComponent() {
     scrollHeight: number;
     scrollTop: number;
   } | null>(null);
+
+  useEffect(() => {
+    const handleDocumentPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        (target.closest("[data-chat-menu]") ||
+          target.closest("[data-chat-menu-button]"))
+      ) {
+        return;
+      }
+
+      setOpenMenuMessageUuid(null);
+    };
+
+    document.addEventListener("pointerdown", handleDocumentPointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handleDocumentPointerDown);
+    };
+  }, []);
 
   const upsertMessage = useCallback(
     (nextMessageDto: ChatMessageDto) => {
@@ -131,6 +158,8 @@ function RouteComponent() {
     status: socketStatus,
     error: socketError,
     sendChat,
+    editChat,
+    deleteChat,
   } = useChatSocket({
     enabled: isInitialLoaded,
     onChatMessage: upsertMessage,
@@ -167,9 +196,7 @@ function RouteComponent() {
           ),
         );
         messageTakeRef.current = INITIAL_CHAT_MESSAGE_TAKE;
-        setHasMoreMessages(
-          initialMessages.length >= INITIAL_CHAT_MESSAGE_TAKE,
-        );
+        setHasMoreMessages(initialMessages.length >= INITIAL_CHAT_MESSAGE_TAKE);
         setCurrentUserUuid(nextCurrentUserUuid);
         setIsInitialLoaded(true);
       } catch (error) {
@@ -293,6 +320,7 @@ function RouteComponent() {
       year: "numeric",
       month: "numeric",
       day: "numeric",
+      weekday: "long",
     }).format(new Date(isoString));
   };
 
@@ -306,6 +334,31 @@ function RouteComponent() {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
+  };
+
+  const handleStartEditing = (message: ChatMessage) => {
+    setEditingMessageUuid(message.messageUuid);
+    setEditingText(message.message);
+  };
+
+  const handleEditMessage = () => {
+    const message = editingText.trim().slice(0, MAX_CHAT_MESSAGE_LENGTH);
+    if (!editingMessageUuid || !message || socketStatus !== "authorized")
+      return;
+
+    editChat(editingMessageUuid, message);
+    setEditingMessageUuid(null);
+    setEditingText("");
+  };
+
+  const handleDeleteMessage = (messageUuid: string) => {
+    if (
+      socketStatus !== "authorized" ||
+      !window.confirm("메시지를 삭제할까요?")
+    )
+      return;
+
+    deleteChat(messageUuid);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -395,7 +448,10 @@ function RouteComponent() {
           )}
 
           {isLoadingOlderMessages && (
-            <SystemMessage message="이전 메시지를 불러오는 중입니다." isStacked={false} />
+            <SystemMessage
+              message="이전 메시지를 불러오는 중입니다."
+              isStacked={false}
+            />
           )}
 
           {!errorMessage && !isInitialLoaded && (
@@ -426,9 +482,24 @@ function RouteComponent() {
                 studentId={msg.studentId}
                 messageSendTime={formatTime(msg.createdAt)}
                 message={msg.message}
+                status={msg.status}
                 isMe={msg.isMe}
                 showProfile={msg.isFirstInGroup}
                 showTime={msg.isLastInGroup}
+                isMenuOpen={openMenuMessageUuid === msg.messageUuid}
+                onMenuToggle={(open) =>
+                  setOpenMenuMessageUuid(open ? msg.messageUuid : null)
+                }
+                isEditing={editingMessageUuid === msg.messageUuid}
+                editValue={editingText}
+                onEditValueChange={setEditingText}
+                onEdit={() => handleStartEditing(msg)}
+                onDelete={() => handleDeleteMessage(msg.messageUuid)}
+                onEditSubmit={handleEditMessage}
+                onEditCancel={() => {
+                  setEditingMessageUuid(null);
+                  setEditingText("");
+                }}
               />
             </Fragment>
           ))}
