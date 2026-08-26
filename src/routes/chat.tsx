@@ -90,7 +90,10 @@ function RouteComponent() {
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [inputText, setInputText] = useState("");
+  const draftStorageKey = "chat_draft_default";
+  const [inputText, setInputText] = useState(() => {
+    return sessionStorage.getItem(draftStorageKey) || "";
+  });
   const messageListRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -167,9 +170,7 @@ function RouteComponent() {
           ),
         );
         messageTakeRef.current = INITIAL_CHAT_MESSAGE_TAKE;
-        setHasMoreMessages(
-          initialMessages.length >= INITIAL_CHAT_MESSAGE_TAKE,
-        );
+        setHasMoreMessages(initialMessages.length >= INITIAL_CHAT_MESSAGE_TAKE);
         setCurrentUserUuid(nextCurrentUserUuid);
         setIsInitialLoaded(true);
       } catch (error) {
@@ -188,12 +189,26 @@ function RouteComponent() {
   }, []);
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInputText(e.target.value.slice(0, MAX_CHAT_MESSAGE_LENGTH));
+    const nextText = e.target.value.slice(0, MAX_CHAT_MESSAGE_LENGTH);
+    setInputText(nextText);
+
+    sessionStorage.setItem(draftStorageKey, nextText);
+
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
   };
+
+  useEffect(() => {
+    if (textareaRef.current && inputText && socketStatus === "authorized") {
+      const textarea = textareaRef.current;
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+
+      textarea.scrollTop = textarea.scrollHeight;
+    }
+  }, [socketStatus, inputText]);
 
   useLayoutEffect(() => {
     const messageList = messageListRef.current;
@@ -303,6 +318,8 @@ function RouteComponent() {
     sendChat(message);
     setInputText("");
 
+    sessionStorage.removeItem(draftStorageKey);
+
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -395,7 +412,10 @@ function RouteComponent() {
           )}
 
           {isLoadingOlderMessages && (
-            <SystemMessage message="이전 메시지를 불러오는 중입니다." isStacked={false} />
+            <SystemMessage
+              message="이전 메시지를 불러오는 중입니다."
+              isStacked={false}
+            />
           )}
 
           {!errorMessage && !isInitialLoaded && (
@@ -440,7 +460,7 @@ function RouteComponent() {
             <div className="flex-1 bg-[#F8F8F8] rounded-[12px] px-[12px] py-[10px] flex flex-col items-center">
               <textarea
                 ref={textareaRef}
-                value={inputText}
+                value={isChatInputDisabled ? "" : inputText}
                 onChange={handleInput}
                 onKeyDown={handleKeyDown}
                 disabled={isChatInputDisabled}
@@ -456,7 +476,7 @@ function RouteComponent() {
                 className={`w-full bg-transparent outline-none text-[15px] resize-none max-h-[96px] overflow-y-auto scrollbar-hide leading-[24px] ${
                   isChatInputDisabled
                     ? "text-[#989898] placeholder:text-[#989898] cursor-not-allowed"
-                    : "text-[#161616] placeholder:text-[#161616]"
+                    : "text-[#161616] placeholder:text-[#989898]"
                 }`}
               />
             </div>
