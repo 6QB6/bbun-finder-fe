@@ -189,7 +189,7 @@ export default function MessageBubble({
         ) : (
           /* 상대방이 보낸 메시지 */
           <div className="flex w-full justify-start">
-            <div className="flex max-w items-end gap-[10px]">
+            <div className="flex max-w-full items-end gap-[10px]">
               <div className="flex-shrink-0 w-[40px] self-start">
                 {showProfile && (
                   <img
