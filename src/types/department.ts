@@ -1,6 +1,6 @@
 export const departmentMap: Record<string, string> = {
   "전기전자컴퓨터공학과": "EC",
-  "AI융합학과": "AI",
+  "AI학과": "AI",
   "반도체공학과": "SE",
   "물리광과학과": "PS",
   "화학과": "CH",
