@@ -60,7 +60,7 @@ function ProfilePage() {
   ];
   const majorList = [
     "전기전자컴퓨터공학과",
-    "AI융합학과",
+    "AI학과",
     "반도체공학과",
     "물리광과학과",
     "화학과",
